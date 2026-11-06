@@ -180,3 +180,7 @@ pi -e ./src/extension.ts                          # try the extension in Pi
 ```
 
 `npm ci` also installs a Lefthook pre-commit hook, which runs `npx ultracite fix` on staged files.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

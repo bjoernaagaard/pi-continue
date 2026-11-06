@@ -11,6 +11,7 @@
   "bugs": {
     "url": "https://github.com/bjoernaagaard/pi-continue/issues"
   },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bjoernaagaard/pi-continue.git"
