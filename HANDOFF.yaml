@@ -14,7 +14,7 @@ goal:
 repository:
   path: /home/bsa/src/pi-continue
   branch: main
-  remote: none
+  remote: https://github.com/bjoernaagaard/pi-continue (public). Tag v0.1.0 marks the staged npm release.
   commits:
     - e9afe01 Set up pi-continue with Ultracite, anti-slop and Lefthook, and add the implementation handoff
     - 8f85068 Add Pi 1.5.0 as a dev dependency for extension types
@@ -26,9 +26,12 @@ repository:
     - eb82749 Switch to an existing destination instead of creating a second one (S3)
     - a82098c Add continue_session and hand off when the run settles (S4)
     - 3a2b544 Keep the continuation verbatim in every model call after compaction (S5)
+    - 4e666de Record S1 to S6 results, new Pi facts and demonstration evidence in the handoff
+    - 74019f3 Rename the command to /next, which no installed extension uses
+    - 1d81fda Add a README and prepare the package for an npm release as @bjoernaagaard/pi-continue
   files:
     package.json: >
-      name pi-continue, type module, keywords [pi-package], pi.extensions ["./src/extension.ts"] (file does not exist yet). scripts check=ultracite check, fix=ultracite fix, prepare=lefthook install.
+      name pi-continue, type module, keywords [pi-package], pi.extensions ["./src/extension.ts"] (file does not exist yet). scripts check=ultracite check, fix=ultracite fix. Name @bjoernaagaard/pi-continue 0.1.0, files [src], publishConfig access public, no license field. The prepare script was removed because Pi's git install runs npm install --omit=dev (dist/core/package-manager.js:1575-1576), so lefthook was missing and the install failed with exit 127. The lefthook package's own postinstall still installs the hook for developers.
     package-lock.json: npm lockfile
     oxlint.config.ts: extends [core, antiSlop] from ultracite/oxlint, options.typeAware true
     oxfmt.config.ts: ultracite formatter config
