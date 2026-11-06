@@ -15,13 +15,13 @@ Nothing is implemented. This repository holds only tooling.
   package.json       pi manifest points at ./src/extension.ts (not yet written)
   oxlint.config.ts   ultracite/oxlint/core + ultracite/oxlint/anti-slop, typeAware on
   oxfmt.config.ts    ultracite formatter
-  lefthook.yml       pre-commit runs `bunx ultracite fix {staged_files}`
+  lefthook.yml       pre-commit runs `npx ultracite fix {staged_files}`
   tsconfig.json      strict, noEmit, include src
   AGENTS.md          written by ultracite init
   .vscode/           written by ultracite init
 ```
 
-Ultracite 8.1.1 (latest on npm on 2026-11-06), Bun, Oxlint with anti-slop and type-aware linting, Lefthook. `bunx ultracite doctor` reports 8 passed, 0 failed.
+Ultracite 8.1.1 (latest on npm on 2026-11-06), npm, Oxlint with anti-slop and type-aware linting, Lefthook. `npx ultracite doctor` reports 8 passed, 0 failed.
 
 Dependencies, decided by the project owner:
 
@@ -337,4 +337,4 @@ Each unit ends in a check that runs the real Pi binary.
 4. `continue_session` and `agent_settled`. Check with demonstrations 5 and 6.
 5. `context` compaction guard. Check with demonstration 7.
 
-Run `bun run check` before each commit. Lefthook runs `ultracite fix` on staged files.
+Run `npm run check` before each commit. Lefthook runs `ultracite fix` on staged files.
