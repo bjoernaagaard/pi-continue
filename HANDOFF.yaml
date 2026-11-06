@@ -19,7 +19,7 @@ repository:
     - 8f85068 Add Pi 1.5.0 as a dev dependency for extension types
     - 1b75011 Use pi-schema for tool parameters and record the pattern in the handoff
     - fc0017c Switch from Bun to npm, the package manager Pi documents for extensions
-    - "(next) Replace HANDOFF.md with this file"
+    - 2d01425 Replace HANDOFF.md with a single YAML handoff
   files:
     package.json: >
       name pi-continue, type module, keywords [pi-package], pi.extensions ["./src/extension.ts"] (file does not exist yet). scripts check=ultracite check, fix=ultracite fix, prepare=lefthook install.
