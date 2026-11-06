@@ -23,7 +23,51 @@ Nothing is implemented. This repository holds only tooling.
 
 Ultracite 8.1.1 (latest on npm on 2026-11-06), Bun, Oxlint with anti-slop and type-aware linting, Lefthook. `bunx ultracite doctor` reports 8 passed, 0 failed.
 
-Before writing code, decide whether to add `@earendil-works/pi-coding-agent` and `typebox` as dev dependencies so type-aware linting can resolve Pi's types. They are peer dependencies today. The project owner asked to be consulted before any new package.
+Dependencies, decided by the project owner:
+
+```
+peerDependencies  @earendil-works/pi-coding-agent "*"   Pi supplies it at runtime (docs/packages.md:104-112)
+devDependencies   @earendil-works/pi-coding-agent 1.5.0  fixed version for local type checking
+dependencies      @earendil-works/pi-schema 1.5.0        tool parameter schemas. Pi does not supply it to extensions
+```
+
+Do not add `typebox`. Ask the project owner before adding any other package.
+
+## Tool parameters
+
+Build every tool's `parameters` with pi-schema builders, never TypeBox. Pi 1.5.0 types `ToolDefinition.parameters` as TypeBox's `TSchema` (`dist/core/extensions/types.d.ts:13, 472`), which is an empty interface. A pi-schema schema is accepted, but `execute` then receives `params` typed `unknown`. Pi still validates the arguments against the JSON Schema with pi-schema before `execute` runs (`docs/extensions.md:174-182`).
+
+Narrow `params` with a validator compiled once at module load:
+
+```ts
+import { compile, int, obj, opt, str } from "@earendil-works/pi-schema";
+
+const HistoryParams = obj({
+  query: opt(str()),
+  maxHits: opt(int({ minimum: 1 })),
+});
+const historyParams = compile(HistoryParams);
+
+pi.registerTool({
+  name: "continue_history",
+  parameters: HistoryParams,
+  async execute(_id, params) {
+    if (!historyParams.check(params)) {
+      throw new Error(
+        historyParams
+          .errors(params)
+          .map((e) => `${e.path} ${e.message}`)
+          .join("; ")
+      );
+    }
+    // params is now { query?: string; maxHits?: number }
+  },
+});
+```
+
+This pattern passed `tsgo -p .` with Pi 1.5.0 and pi-schema 1.5.0. A `@ts-expect-error` line that assigned `params.query` to a `number` confirmed that `check` narrows the type.
+
+The data shapes below use plain TypeScript types. Where a shape crosses a boundary (tool arguments or custom entry data read back from a JSONL file), define it as a pi-schema schema and derive the type with `Static<typeof Schema>`, so one definition gives both the type and the runtime check.
 
 ## Source references
 

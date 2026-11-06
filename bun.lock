@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "pi-continue",
+      "dependencies": {
+        "@earendil-works/pi-schema": "1.5.0",
+      },
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "1.5.0",
         "lefthook": "^2.2.2",
