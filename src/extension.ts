@@ -3,7 +3,12 @@ import type {
   ExtensionCommandContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { continuationText, findIntent } from "./handoff.ts";
+import {
+  continuationText,
+  findDestination,
+  findIntent,
+  intents,
+} from "./handoff.ts";
 import {
   DEFAULT_AROUND,
   DEFAULT_MAX_HITS,
@@ -106,7 +111,31 @@ const continueCommand = async (
     return;
   }
 
-  await dispatch(ctx, intent, command);
+  const existing = await findDestination(intent);
+
+  if (existing === undefined) {
+    await dispatch(ctx, intent, command);
+
+    return;
+  }
+
+  const notice = existing.unanswered
+    ? `pi-continue: switched to the existing session for handoff ${intent.handoffId}. Its continuation has no reply yet. Send a message to start. Nothing was resent.`
+    : `pi-continue: switched to the existing session for handoff ${intent.handoffId}. Nothing was resent.`;
+
+  const result = await ctx.switchSession(existing.file, {
+    // oxlint-disable-next-line require-await
+    withSession: async (next) => {
+      next.ui.notify(notice, "info");
+    },
+  });
+
+  if (result.cancelled) {
+    ctx.ui.notify(
+      `pi-continue: another extension cancelled the switch to ${existing.file}.`,
+      "warning"
+    );
+  }
 };
 
 export default function piContinue(pi: ExtensionAPI): void {
@@ -118,13 +147,29 @@ export default function piContinue(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on("session_start", (_event, ctx) => {
-    const link = findLink(ctx.sessionManager.getEntries());
+  pi.on("session_start", async (_event, ctx) => {
+    const entries = ctx.sessionManager.getEntries();
+    const link = findLink(entries);
 
     if (link !== undefined) {
       ctx.ui.notify(
         `pi-continue: handoff ${link.handoffId} continues ${link.source.file}`,
         "info"
+      );
+    }
+
+    const pending = await Promise.all(
+      intents(entries).map(async (intent) =>
+        (await findDestination(intent)) === undefined ? [intent.handoffId] : []
+      )
+    );
+
+    const command = commandName(pi);
+
+    for (const handoffId of pending.flat()) {
+      ctx.ui.notify(
+        `pi-continue: handoff ${handoffId} has no destination session yet. Run /${command} ${handoffId} to create it.`,
+        "warning"
       );
     }
   });
