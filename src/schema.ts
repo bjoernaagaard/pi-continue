@@ -28,6 +28,12 @@ const UncertainEffectSchema = obj({
   toolName: str(),
 });
 
+const ContinuationSchema = obj({
+  constraints: arr(str()),
+  handoffId: str({ minLength: 1 }),
+  task: str({ minLength: 1 }),
+});
+
 const HandoffDataSchema = obj({
   constraints: arr(str()),
   handoffId: str({ minLength: 1 }),
@@ -40,12 +46,21 @@ export type SourceRef = Static<typeof SourceRefSchema>;
 
 export type UncertainEffect = Static<typeof UncertainEffectSchema>;
 
+/** The details of a continue_session tool result: a requested handoff. */
+export type Continuation = Static<typeof ContinuationSchema> & {
+  handoffId: HandoffId;
+};
+
 /** Intent entries (in the source) and link entries (in the destination) carry the same data. */
 export type HandoffData = Static<typeof HandoffDataSchema> & {
   handoffId: HandoffId;
 };
 
+const continuation = compile(ContinuationSchema);
 const handoffData = compile(HandoffDataSchema);
+
+export const isContinuation = (value: unknown): value is Continuation =>
+  continuation.check(value);
 
 export const isHandoffData = (value: unknown): value is HandoffData =>
   handoffData.check(value);

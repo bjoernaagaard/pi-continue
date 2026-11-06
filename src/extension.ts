@@ -1,13 +1,19 @@
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
+  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
 import {
+  buildIntent,
   continuationText,
   findDestination,
   findIntent,
+  hasLaterUserMessage,
   intents,
+  newHandoffId,
+  requests,
+  TOOL_NAME,
 } from "./handoff.ts";
 import {
   DEFAULT_AROUND,
@@ -16,8 +22,15 @@ import {
   search,
   walkChain,
 } from "./history.ts";
-import { HistoryParams, historyParams, LINK_TYPE } from "./schema.ts";
-import type { HandoffData } from "./schema.ts";
+import {
+  ContinueSessionParams,
+  continueSessionParams,
+  HistoryParams,
+  historyParams,
+  INTENT_TYPE,
+  LINK_TYPE,
+} from "./schema.ts";
+import type { Continuation, HandoffData } from "./schema.ts";
 
 const COMMAND = "continue";
 const SELF = import.meta.filename;
@@ -71,11 +84,58 @@ const dispatch = async (
   }
 };
 
+/** Writes the intent for a request to the source. The source ref is read before the append. */
+const recordIntent = (
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  continuation: Continuation
+): HandoffData | undefined => {
+  const intent = buildIntent(ctx.sessionManager, continuation);
+
+  if (intent !== undefined) {
+    pi.appendEntry(INTENT_TYPE, intent);
+  }
+
+  return intent;
+};
+
+/** The intent for the handoff, written now from its continue_session request if it has none. */
+const intentFor = (
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  handoffId: string | undefined
+): HandoffData | undefined => {
+  const { sessionManager } = ctx;
+  const entries = sessionManager.getEntries();
+  const branch = sessionManager.getBranch();
+  const existing = findIntent(entries, branch, handoffId);
+
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const written = new Set(intents(entries).map((intent) => intent.handoffId));
+
+  const request = (
+    handoffId === undefined ? requests(branch) : requests(entries)
+  )
+    .filter(({ continuation }) => !written.has(continuation.handoffId))
+    .findLast(
+      ({ continuation }) =>
+        handoffId === undefined || continuation.handoffId === handoffId
+    );
+
+  return request === undefined
+    ? undefined
+    : recordIntent(pi, ctx, request.continuation);
+};
+
 const continueCommand = async (
   args: string,
   ctx: ExtensionCommandContext,
-  command: string
+  pi: ExtensionAPI
 ): Promise<void> => {
+  const command = commandName(pi);
   const requested = args.trim() === "" ? undefined : args.trim();
 
   const retry =
@@ -92,19 +152,13 @@ const continueCommand = async (
     return;
   }
 
-  const { sessionManager } = ctx;
-
-  const intent = findIntent(
-    sessionManager.getEntries(),
-    sessionManager.getBranch(),
-    requested
-  );
+  const intent = intentFor(pi, ctx, requested);
 
   if (intent === undefined) {
     ctx.ui.notify(
       requested === undefined
-        ? "pi-continue: no handoff intent on this branch."
-        : `pi-continue: no handoff intent with ID ${requested} in this session.`,
+        ? "pi-continue: no handoff on this branch."
+        : `pi-continue: no handoff with ID ${requested} in this session.`,
       "error"
     );
 
@@ -143,8 +197,105 @@ export default function piContinue(pi: ExtensionAPI): void {
     description:
       "Continue in a fresh session that holds only the task, the constraints and a link to this one: /continue [handoffId]",
     handler: async (args, ctx) => {
-      await continueCommand(args, ctx, commandName(pi));
+      await continueCommand(args, ctx, pi);
     },
+  });
+
+  // Requests made during the current run. Only these dispatch when the run settles, so a request
+  // refused earlier waits for /continue instead of firing after some later run.
+  const requestedThisRun = new Set<string>();
+
+  pi.registerTool({
+    description:
+      "Hand off to a fresh session. It starts with only the task, the active constraints copied verbatim, and a link to this session; it reads earlier history on demand with continue_history. The handoff happens after this run ends, so end your turn right after calling this tool.",
+    // oxlint-disable-next-line require-await
+    async execute(_toolCallId, params) {
+      if (!continueSessionParams.check(params)) {
+        throw new Error(
+          continueSessionParams
+            .errors(params)
+            .map((error) => `${error.path} ${error.message}`)
+            .join("; ")
+        );
+      }
+
+      const handoffId = newHandoffId();
+
+      const details: Continuation = {
+        constraints: params.constraints,
+        handoffId,
+        task: params.task,
+      };
+
+      requestedThisRun.add(handoffId);
+
+      return textResult(
+        `Handoff ${handoffId} requested. pi-continue opens the new session once this run ends. End your turn now.`,
+        details
+      );
+    },
+    label: "Continue session",
+    name: TOOL_NAME,
+    parameters: ContinueSessionParams,
+    promptSnippet:
+      "continue_session: hand off to a fresh session with the task and verbatim constraints",
+  });
+
+  pi.on("agent_settled", (event, ctx) => {
+    const thisRun = new Set(requestedThisRun);
+
+    requestedThisRun.clear();
+
+    const { sessionManager } = ctx;
+    const branch = sessionManager.getBranch();
+
+    const written = new Set(
+      intents(sessionManager.getEntries()).map((intent) => intent.handoffId)
+    );
+
+    const request = requests(branch).findLast(
+      ({ continuation }) =>
+        thisRun.has(continuation.handoffId) &&
+        !written.has(continuation.handoffId)
+    );
+
+    if (request === undefined) {
+      return;
+    }
+
+    const { handoffId } = request.continuation;
+    const command = commandName(pi);
+
+    const reasons = [
+      event.aborted ? "the run was aborted" : "",
+      ctx.hasPendingMessages() ? "messages are queued" : "",
+      hasLaterUserMessage(branch, request.entryId)
+        ? "a user message arrived after the request"
+        : "",
+    ].filter((reason) => reason !== "");
+
+    if (reasons.length > 0) {
+      ctx.ui.notify(
+        `pi-continue: handoff ${handoffId} refused because ${reasons.join(" and ")}. Run /${command} ${handoffId} when ready.`,
+        "warning"
+      );
+
+      return;
+    }
+
+    if (recordIntent(pi, ctx, request.continuation) === undefined) {
+      ctx.ui.notify(
+        `pi-continue: handoff ${handoffId} needs a saved session with at least one entry.`,
+        "error"
+      );
+
+      return;
+    }
+
+    // Pi defers this prompt until every agent_settled handler has finished (agent-session.js:1650).
+    pi.sendUserMessage(`/${command} ${handoffId}`, {
+      expandPromptTemplates: true,
+    });
   });
 
   pi.on("session_start", async (_event, ctx) => {
@@ -158,15 +309,25 @@ export default function piContinue(pi: ExtensionAPI): void {
       );
     }
 
-    const pending = await Promise.all(
-      intents(entries).map(async (intent) =>
+    const intended = intents(entries);
+    const written = new Set(intended.map((intent) => intent.handoffId));
+
+    const requestedOnly = requests(entries)
+      .map(({ continuation }) => continuation.handoffId)
+      .filter((handoffId) => !written.has(handoffId));
+
+    const undispatched = await Promise.all(
+      intended.map(async (intent) =>
         (await findDestination(intent)) === undefined ? [intent.handoffId] : []
       )
     );
 
     const command = commandName(pi);
 
-    for (const handoffId of pending.flat()) {
+    for (const handoffId of new Set([
+      ...requestedOnly,
+      ...undispatched.flat(),
+    ])) {
       ctx.ui.notify(
         `pi-continue: handoff ${handoffId} has no destination session yet. Run /${command} ${handoffId} to create it.`,
         "warning"
