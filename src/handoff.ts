@@ -2,12 +2,13 @@ import path from "node:path";
 
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
+  ContextEvent,
   CustomEntry,
   ExtensionContext,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
-import { findLink, isSkipped, readSession } from "./history.ts";
+import { blocksText, findLink, isSkipped, readSession } from "./history.ts";
 import { INTENT_TYPE, isContinuation, isHandoffData } from "./schema.ts";
 import type {
   Continuation,
@@ -235,4 +236,30 @@ export const findDestination = async (
   }
 
   return undefined;
+};
+
+/**
+ * The messages for one model call with the continuation guaranteed verbatim, or undefined when a
+ * user message already holds it. After compaction the continuation may survive only as a
+ * paraphrase in the summary, so the full text is required, not the marker alone.
+ */
+export const withContinuation = (
+  messages: ContextEvent["messages"],
+  data: HandoffData
+): ContextEvent["messages"] | undefined => {
+  const text = continuationText(data);
+
+  const present = messages.some(
+    (message) =>
+      message.role === "user" && blocksText(message.content).includes(text)
+  );
+
+  if (present) {
+    return undefined;
+  }
+
+  return [
+    { content: [{ text, type: "text" }], role: "user", timestamp: Date.now() },
+    ...messages,
+  ];
 };

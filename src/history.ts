@@ -215,7 +215,9 @@ const isBlockList = (
   content: string | readonly ContentBlock[]
 ): content is readonly ContentBlock[] => Array.isArray(content);
 
-const blocksText = (content: string | readonly ContentBlock[]): string => {
+export const blocksText = (
+  content: string | readonly ContentBlock[]
+): string => {
   if (!isBlockList(content)) {
     return content;
   }

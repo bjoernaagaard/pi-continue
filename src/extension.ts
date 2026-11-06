@@ -14,6 +14,7 @@ import {
   newHandoffId,
   requests,
   TOOL_NAME,
+  withContinuation,
 } from "./handoff.ts";
 import {
   DEFAULT_AROUND,
@@ -296,6 +297,17 @@ export default function piContinue(pi: ExtensionAPI): void {
     pi.sendUserMessage(`/${command} ${handoffId}`, {
       expandPromptTemplates: true,
     });
+  });
+
+  // Re-inserts the continuation for this model call only when compaction has dropped it. The
+  // session file is not changed.
+  pi.on("context", (event, ctx) => {
+    const link = findLink(ctx.sessionManager.getEntries());
+
+    const messages =
+      link === undefined ? undefined : withContinuation(event.messages, link);
+
+    return messages === undefined ? undefined : { messages };
   });
 
   pi.on("session_start", async (_event, ctx) => {
