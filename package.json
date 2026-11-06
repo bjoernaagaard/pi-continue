@@ -1,16 +1,30 @@
 {
-  "name": "pi-continue",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@bjoernaagaard/pi-continue",
+  "version": "0.1.0",
   "description": "Pi extension: start each continuation in a fresh session linked to its source, with read-only retrieval of prior history.",
   "keywords": [
+    "pi",
+    "pi-extension",
     "pi-package"
   ],
+  "homepage": "https://github.com/bjoernaagaard/pi-continue#readme",
+  "bugs": {
+    "url": "https://github.com/bjoernaagaard/pi-continue/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bjoernaagaard/pi-continue.git"
+  },
+  "files": [
+    "src"
+  ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "check": "ultracite check",
-    "fix": "ultracite fix",
-    "prepare": "lefthook install"
+    "fix": "ultracite fix"
   },
   "dependencies": {
     "@earendil-works/pi-schema": "1.5.0"
