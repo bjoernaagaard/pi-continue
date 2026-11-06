@@ -1,7 +1,8 @@
 handoff:
   name: pi-continue
   written: 2026-11-06
-  status_summary: Tooling is set up and committed. No extension code exists. No demonstration has run.
+  status_summary: >
+    Steps S1 to S6 are done. src/ implements continue_history, /continue, continue_session, the agent_settled dispatch, the session_start report and the context guard. D1 to D8 passed on commit 3a2b544 with the real pi binary and cliproxyapi/claude-opus-5-5. Artifacts are under /tmp/pi-continue-demo/out/<id>/, with earlier step runs in out/<id>/during-steps/. Open owner question: the /continue name collides with the cliproxyapi provider (see facts.environment).
 
 goal:
   user_goal: >
@@ -20,6 +21,11 @@ repository:
     - 1b75011 Use pi-schema for tool parameters and record the pattern in the handoff
     - fc0017c Switch from Bun to npm, the package manager Pi documents for extensions
     - 2d01425 Replace HANDOFF.md with a single YAML handoff
+    - 36598c5 Add continue_history, a read-only search over linked source sessions (S1)
+    - 712bdc3 Add /continue, which opens a linked session holding only the continuation (S2)
+    - eb82749 Switch to an existing destination instead of creating a second one (S3)
+    - a82098c Add continue_session and hand off when the run settles (S4)
+    - 3a2b544 Keep the continuation verbatim in every model call after compaction (S5)
   files:
     package.json: >
       name pi-continue, type module, keywords [pi-package], pi.extensions ["./src/extension.ts"] (file does not exist yet). scripts check=ultracite check, fix=ultracite fix, prepare=lefthook install.
@@ -32,6 +38,10 @@ repository:
     .vscode/settings.json: written by ultracite init
     .gitignore: node_modules/
     HANDOFF.yaml: this file
+    src/schema.ts: pi-schema schemas for SourceRef, UncertainEffect, Continuation, HandoffData and both tool parameter sets
+    src/history.ts: readSession (readFile + parseSessionEntries, version 3 only), findLink, walkChain, branchTo, entryText, search
+    src/handoff.ts: continuationText, intents, findIntent, requests, uncertainEffects, buildIntent, findDestination, withContinuation
+    src/extension.ts: registers /continue, continue_session, continue_history and the agent_settled, context and session_start handlers
   dependencies:
     peerDependencies: { "@earendil-works/pi-coding-agent": "*" }
     devDependencies:
@@ -157,6 +167,68 @@ facts:
         [
           dist/core/slash-commands.js:3-26 lists every built-in command and none is continue,
         ]
+    - claim: When two extensions register the same command name, Pi names them name:1, name:2 in load order, and "/name" alone matches neither.
+      evidence:
+        [
+          dist/core/extensions/runner.js:556-583,
+          dist/core/extensions/runner.js:595-597,
+          dist/core/agent-session.js:1716-1723,
+        ]
+    - claim: pi.getCommands() returns each command's invocation name and sourceInfo.path, so an extension can find its own assigned name.
+      evidence:
+        [
+          dist/core/agent-session.js:2763-2766,
+          "RPC get_commands on 2026-11-06 returned continue:2 with path /home/bsa/src/pi-continue/src/extension.ts",
+        ]
+    - claim: session.prompt dispatches extension commands by default (expandPromptTemplates defaults to true), in print mode and in RPC mode.
+      evidence:
+        [
+          dist/core/agent-session.js:1654-1659,
+          dist/modes/rpc/rpc-mode.js:298-311,
+          dist/modes/print-mode.js:57-72,
+        ]
+    - claim: A follow-up queued while a run is active is delivered inside the same run, so ctx.hasPendingMessages() is false by agent_settled. The extension also refuses when a user message follows the continue_session result on the branch.
+      evidence:
+        [
+          pi-agent-core dist/agent-loop.js:196-202,
+          "D5 notice listed only 'a user message arrived after the request'",
+        ]
+    - claim: Pi records no abort flag on tool results. Aborted calls get isError true and the text "Operation aborted" or "... Command aborted". Tool calls in an assistant message with stopReason error or aborted are never run.
+      evidence:
+        [
+          pi-agent-core dist/agent-loop.js:148-158,
+          pi-agent-core dist/agent-loop.js:444,
+          pi-agent-core dist/agent-loop.js:509,
+          dist/core/tools/bash.js:271,
+          "D6 source toolResult text ended with Command aborted",
+        ]
+    - claim: Manual /compact throws "Nothing to compact (session too small)" unless the branch exceeds keepRecentTokens (default 20000) after the cut point.
+      evidence:
+        [
+          dist/core/agent-session.js:2261-2268,
+          dist/core/compaction/compaction.js:334-356,
+        ]
+    - claim: SessionManager.list with a custom sessionDir drops sessions whose cwd differs. listAll(dir) does not filter, so findDestination uses listAll.
+      evidence:
+        [
+          dist/core/session-manager.js:1468-1477,
+          dist/core/session-manager.js:1479-1491,
+        ]
+    - claim: ReadonlySessionManager is not exported from the package root. Use ExtensionContext["sessionManager"].
+      evidence: ["tsgo TS2305 on 2026-11-06", dist/index.d.ts:21]
+  environment:
+    - claim: The configured model cliproxyapi/claude-opus-5-5 comes from the installed package @juvio15/pi-cliproxyapi-provider, which -ne disables. Demonstrations load it with an explicit -e.
+      evidence:
+        [
+          "pi -ne --list-models printed No models available",
+          ~/.pi/agent/settings.json packages,
+        ]
+    - claim: That package registers its own /continue command (pause.ts:119), so in the owner's normal setup this extension's command is /continue:2 and /continue alone reaches nothing.
+      evidence:
+        [
+          ~/.pi/agent/npm/node_modules/@juvio15/pi-cliproxyapi-provider/src/extension/pause.ts:119,
+          "first D1 attempt sent /continue to the model as text",
+        ]
   pi_schema:
     - claim: Pi supplies pi-coding-agent, pi-agent-core, pi-ai, pi-tui and typebox to extensions. pi-schema is not supplied, so it must be in dependencies.
       evidence: [docs/packages.md:100-112, dist/core/extensions/loader.js:42-84]
@@ -194,22 +266,28 @@ facts:
         ]
 
 assumptions:
-  description: Inferred, not observed. Each must be confirmed by the named demonstration before it is relied on.
+  description: Each item records what the demonstrations on 2026-11-06 showed.
   items:
     - claim: Queued steering and follow-up messages are lost when the old session is disposed.
       basis: abort() leaves them in arrays on an object that is then discarded.
-      confirm_with: D5
+      status: untested
+      evidence: D5 never reached dispose. Pi delivered the follow-up inside the run, and the extension refused the handoff, so nothing was queued at dispose time.
     - claim: Pi 1.5.0 has no session file lock, so a second pi process can resume the source concurrently.
       basis: No lock code found in dist/core/session-manager.js.
-      confirm_with: not demonstrated. Treat as true.
+      status: untested. Treat as true.
     - claim: Appending the link entry in setup and sending the user message in withSession makes the destination file appear with both entries in one write.
       basis: session-manager.js:786-813 delays the first write until a user message exists.
-      confirm_with: D1, D3
+      status: confirmed in part
+      evidence: D3 (kill -9 inside setup, after appendCustomEntry) left no destination file. The final D1 destination holds header, model_change, thinking_level_change, link, system message, user message in that order. The single pass is read from the code, not observed with a syscall trace.
     - claim: "ctx.sendMessage(..., { triggerTurn: true }) from a ReplacedSessionContext starts a run."
       basis: dist/core/extensions/types.d.ts:348-352. Never run.
-      confirm_with: only needed if the owner picks option B in decisions D-1.
+      status: untested. Not needed, because D-1 uses option A.
     - claim: The model never sees source history in the destination's first provider request.
-      confirm_with: D2
+      status: confirmed
+      evidence: out/D2/first-request.json holds one user message, the continuation, and rg finds no ferry code. Later requests contain source excerpts only when the model calls continue_history, by design.
+    - claim: The context guard keeps the continuation and every constraint verbatim after compaction, without changing the JSONL.
+      status: confirmed
+      evidence: out/D7. The continuation entry precedes firstKeptEntryId, the final request starts with the re-inserted continuation, and the JSONL holds one copy.
 
 scope:
   in:
@@ -322,11 +400,11 @@ contracts:
 flow:
   - step: The model calls continue_session { task, constraints }.
     native: Pi persists the tool result with details.
-  - step: agent_settled. Stop with a notice naming the handoff ID if event.aborted or ctx.hasPendingMessages().
+  - step: agent_settled. Consider only continue_session requests made in this run. Stop with a notice naming the handoff ID if event.aborted, ctx.hasPendingMessages(), or a user message follows the request on the branch (a follow-up delivered inside the run, see D5).
     native: dist/core/agent-session.js:696-718, dist/core/extensions/types.d.ts:263
   - step: Read getSessionFile, getSessionId and getLeafId. Compute uncertainEffects from getBranch(). Then pi.appendEntry("pi-continue/intent", data).
     native: docs/extensions.md:1681
-  - step: 'pi.sendUserMessage("/continue <id>", { expandPromptTemplates: true }).'
+  - step: 'pi.sendUserMessage("/<assigned name> <id>", { expandPromptTemplates: true }). The assigned name comes from pi.getCommands(), because a name collision turns /continue into /continue:N.'
     native: deferred until settled handlers finish (dist/core/agent-session.js:1650)
   - step: /continue searches for an existing destination. Found means ctx.switchSession(path) and stop.
   - step: "ctx.newSession({ parentSession, setup, withSession }). Handle { cancelled: true } with a notice. The old ctx is still valid in that case."
@@ -334,7 +412,7 @@ flow:
   - step: session_start in the new instance rebuilds state from the link entry.
   - step: withSession(ctx) calls ctx.sendUserMessage(continuationText(link)). The closure captures only plain data.
     native: docs/extensions.md:1471-1478
-  - step: The context handler checks event.messages for "[pi-continue <handoffId>]". If no message contains it, it prepends a user message with the continuation text for that call only.
+  - step: The context handler checks the user messages in event.messages for the full continuation text, which starts with "[pi-continue <handoffId>]". If none holds it verbatim, it prepends a user message with the continuation text for that call only. The full text is required because a compaction summary may repeat the marker with paraphrased constraints.
 
 recovery:
   find_existing_destination: |
@@ -423,8 +501,25 @@ demonstrations:
   setup: |
     mkdir -p /tmp/pi-continue-demo/sessions /tmp/pi-continue-demo/out
     cd /home/bsa/src/pi-continue
-    pi -ne -e ./src/extension.ts -e /tmp/pi-continue-demo/payload.ts --session-dir /tmp/pi-continue-demo/sessions
-    # payload.ts is a copy of P/examples/extensions/provider-payload.ts with its log path set to /tmp/pi-continue-demo/out/payloads.log
+    PROV=~/.pi/agent/npm/node_modules/@juvio15/pi-cliproxyapi-provider/src/extension/index.ts
+    PI_CONTINUE_PAYLOAD_LOG=/tmp/pi-continue-demo/out/<id>/payloads.log \
+      pi --mode rpc -ne -nc -ns -np --no-mcp -t continue_history,continue_session -e $PROV -e ./src/extension.ts \
+      -e /tmp/pi-continue-demo/payload.ts --session-dir /tmp/pi-continue-demo/sessions/<run>
+    # payload.ts is a copy of P/examples/extensions/provider-payload.ts that logs to $PI_CONTINUE_PAYLOAD_LOG.
+    # -e $PROV is needed because -ne disables the package that provides the configured model.
+    # The command is /continue:2 because the provider package also registers continue (facts.environment).
+    # RPC mode drives queued follow-ups (D5), aborts (D6) and compaction (D7). -t adds bash for D6 and read for D7.
+  results:
+    final_commit: 3a2b544
+    D1: pass. out/D1/evidence.jsonl. parentSession equals the source path, one link with handoffId 7d07d61f-a10a-4535-a71f-b4004d37eecc.
+    D2: pass. out/D2/first-request.json has one user message, the continuation. out/D2/rg-source-phrase.txt shows no ferry code.
+    D3: pass. out/D3/ls-after-kill.txt shows only the source after kill -9 inside setup. out/D3/ls-after-rerun.txt shows one destination.
+    D4: pass. out/D4/ls-before.txt equals ls-after.txt, out/D4/session-after.txt is the first destination.
+    D5: pass. out/D5/notices.jsonl holds the refusal. out/D5/ls.txt shows only the source, with no intent entry.
+    D6: pass. out/D6/ls-marker.txt shows the marker. out/D6/destination-first-user-message.txt lists the aborted bash call.
+    D7: pass. out/D7/verbatim-check.txt counts the marker and both constraints once each in out/D7/final-request.json.
+    D8: pass. out/D8/tool-results.jsonl hit names the first file and entry 4db2eccd. out/D8/cmp.txt shows both sources identical to their copies.
+    D8_interpretation: Three sessions joined by two handoffs. The fact lives only in the first session's transcript.
   rules:
     - Use the real pi binary and a real model. No mocks.
     - Never use the default session directory.
@@ -469,7 +564,7 @@ commands:
   fix: npx ultracite fix
   doctor: npx ultracite doctor # last result 8 passed, 0 warnings, 0 failed
   type_check: npx -y -p @typescript/native-preview tsgo -p . # transient download, not a dependency. See decision D-5
-  bun_check: rg -n -i bun --hidden -g '!node_modules' -g '!.git' -g '!package-lock.json' . # must print nothing
+  bun_check: rg -n -i bun --hidden -g '!node_modules' -g '!.git' -g '!package-lock.json' -g '!HANDOFF.yaml' . # must print nothing. HANDOFF.yaml is excluded because it records the npm decision and this command itself
   commit: git commit # Lefthook pre-commit runs npx ultracite fix on staged files and restages them
 
 execution_constraints:
@@ -489,30 +584,43 @@ decisions_needed:
     - id: D-0
       question: May the agent run demonstrations D1 to D8 against a real model?
       default: Yes. They write only under /tmp/pi-continue-demo, which is reversible. Use whatever model pi is already configured with.
+      applied: Yes, with cliproxyapi/claude-opus-5-5 at thinking level high, loaded through an explicit -e of its provider package.
     - id: D-1
       default: A
       question: When /continue finds a destination whose last message is the unanswered continuation, what happens?
       options:
         A: Switch and notify. Start nothing. (recommended. No assumption needed)
         B: 'Switch and start a run with ctx.sendMessage({ customType: "pi-continue/resume" }, { triggerTurn: true }). (untested)'
+      applied: A
     - id: D-2
       default: A
       question: Who may start a handoff?
       options:
         A: The model through continue_session, and the user through /continue. (recommended)
         B: Only the user through /continue.
+      applied: A
     - id: D-3
       question: Are the retrieval limits right? excerpt 600 chars, result 12000 chars, 20 hits, chain depth 32.
       default: Keep them until D8, then adjust.
+      applied: Kept. D8 found the fact in two calls, the second with 2 hits, far below every limit, so no evidence asks for a change.
     - id: D-4
       default: A
       question: Should the context guard re-inject the continuation after compaction, or should a session_before_compact handler supply a summary that contains it?
       options:
         A: context guard, which changes only the request, not the JSONL. (recommended)
         B: custom compaction summary
+      applied: A
     - id: D-5
       question: Add @typescript/native-preview as a devDependency with a typecheck script, or keep the transient npx command?
       default: Keep the transient command until the owner answers.
+      applied: Kept the transient npx command.
+    - id: D-6
+      question: The cliproxyapi provider also registers /continue, so users must type /continue:2. Rename this command, or keep the contract name?
+      default: Keep "continue". The extension finds its assigned name with pi.getCommands() for its own dispatch and notices, so the model path works either way.
+      applied: default
+      options:
+        A: Keep continue and accept /continue:2 while that provider is installed.
+        B: Rename to a name no installed package uses, such as handoff-continue.
 
 report_back:
   - Commits made, one line each with hash and message.
