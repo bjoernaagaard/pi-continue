@@ -33,12 +33,12 @@ import {
 } from "./schema.ts";
 import type { Continuation, HandoffData } from "./schema.ts";
 
-const COMMAND = "continue";
+const COMMAND = "next";
 const SELF = import.meta.filename;
 
 /**
  * The name Pi gave this extension's command. Pi renames every command whose name another
- * extension also registers to `name:<n>` (extensions/runner.js:570), so "/continue" alone may
+ * extension also registers to `name:<n>` (extensions/runner.js:570), so "/next" alone may
  * reach nothing.
  */
 const commandName = (pi: ExtensionAPI): string =>
@@ -196,14 +196,14 @@ const continueCommand = async (
 export default function piContinue(pi: ExtensionAPI): void {
   pi.registerCommand(COMMAND, {
     description:
-      "Continue in a fresh session that holds only the task, the constraints and a link to this one: /continue [handoffId]",
+      "Continue in a fresh session that holds only the task, the constraints and a link to this one: /next [handoffId]",
     handler: async (args, ctx) => {
       await continueCommand(args, ctx, pi);
     },
   });
 
   // Requests made during the current run. Only these dispatch when the run settles, so a request
-  // refused earlier waits for /continue instead of firing after some later run.
+  // refused earlier waits for /next instead of firing after some later run.
   const requestedThisRun = new Set<string>();
 
   pi.registerTool({

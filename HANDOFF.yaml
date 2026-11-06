@@ -2,14 +2,14 @@ handoff:
   name: pi-continue
   written: 2026-11-06
   status_summary: >
-    Steps S1 to S6 are done. src/ implements continue_history, /continue, continue_session, the agent_settled dispatch, the session_start report and the context guard. D1 to D8 passed on commit 3a2b544 with the real pi binary and cliproxyapi/claude-opus-5-5. Artifacts are under /tmp/pi-continue-demo/out/<id>/, with earlier step runs in out/<id>/during-steps/. Open owner question: the /continue name collides with the cliproxyapi provider (see facts.environment).
+    Steps S1 to S6 are done. src/ implements continue_history, /next, continue_session, the agent_settled dispatch, the session_start report and the context guard. D1 to D8 passed on commit 3a2b544 with the real pi binary and cliproxyapi/claude-opus-5-5. Artifacts are under /tmp/pi-continue-demo/out/<id>/, with earlier step runs in out/<id>/during-steps/. The command was renamed from continue to next after the run on 3a2b544, because the cliproxyapi provider also registers continue (decision D-6). out/next-rename/ shows the renamed command working.
 
 goal:
   user_goal: >
     Start each Pi continuation in a fresh session that carries no prior transcript and no summary. The new session receives only the current task, the exact active constraints, and a reference to its source (session file, session ID, finalized leaf ID). Prior history stays on disk and the model reads it on demand through a read-only tool that follows explicit source links across successive continuations.
   form: A self-contained Pi extension. No change to Pi and no upstream PR, ever.
   smallest_deliverable: >
-    src/extension.ts implementing the continue_session tool, the /continue command, the agent_settled and session_start handlers, the context compaction guard, and the continue_history retrieval tool, each proven by running the real pi binary.
+    src/extension.ts implementing the continue_session tool, the /next command, the agent_settled and session_start handlers, the context compaction guard, and the continue_history retrieval tool, each proven by running the real pi binary.
 
 repository:
   path: /home/bsa/src/pi-continue
@@ -41,7 +41,7 @@ repository:
     src/schema.ts: pi-schema schemas for SourceRef, UncertainEffect, Continuation, HandoffData and both tool parameter sets
     src/history.ts: readSession (readFile + parseSessionEntries, version 3 only), findLink, walkChain, branchTo, entryText, search
     src/handoff.ts: continuationText, intents, findIntent, requests, uncertainEffects, buildIntent, findDestination, withContinuation
-    src/extension.ts: registers /continue, continue_session, continue_history and the agent_settled, context and session_start handlers
+    src/extension.ts: registers /next, continue_session, continue_history and the agent_settled, context and session_start handlers
   dependencies:
     peerDependencies: { "@earendil-works/pi-coding-agent": "*" }
     devDependencies:
@@ -223,7 +223,7 @@ facts:
           "pi -ne --list-models printed No models available",
           ~/.pi/agent/settings.json packages,
         ]
-    - claim: That package registers its own /continue command (pause.ts:119), so in the owner's normal setup this extension's command is /continue:2 and /continue alone reaches nothing.
+    - claim: That package registers its own /continue command (pause.ts:119), so while this extension used the name continue, Pi renamed it to continue:1 or continue:2 by load order, and /continue:2 and /continue alone reaches nothing.
       evidence:
         [
           ~/.pi/agent/npm/node_modules/@juvio15/pi-cliproxyapi-provider/src/extension/pause.ts:119,
@@ -368,8 +368,8 @@ contracts:
   tool_continue_session:
     parameters: "obj({ task: str({ minLength: 1 }), constraints: arr(str()) })"
     behaviour: Returns details { handoffId, task, constraints } and text naming the handoff ID. Never calls newSession, because tools run inside an active run.
-  command_continue:
-    usage: "/continue [handoffId]"
+  command_next:
+    usage: "/next [handoffId]"
     behaviour: Reads the intent for handoffId (or the latest intent on the current branch), searches for an existing destination, switches to it if found, otherwise calls ctx.newSession.
   tool_continue_history:
     parameters: "obj({ query: opt(str()), entryId: opt(str()), session: opt(str()), around: opt(int({ minimum: 0 })), maxHits: opt(int({ minimum: 1 })), wholeFile: opt(bool()) })"
@@ -406,7 +406,7 @@ flow:
     native: docs/extensions.md:1681
   - step: 'pi.sendUserMessage("/<assigned name> <id>", { expandPromptTemplates: true }). The assigned name comes from pi.getCommands(), because a name collision turns /continue into /continue:N.'
     native: deferred until settled handlers finish (dist/core/agent-session.js:1650)
-  - step: /continue searches for an existing destination. Found means ctx.switchSession(path) and stop.
+  - step: /next searches for an existing destination. Found means ctx.switchSession(path) and stop.
   - step: "ctx.newSession({ parentSession, setup, withSession }). Handle { cancelled: true } with a notice. The old ctx is still valid in that case."
   - step: setup(sm) calls sm.appendCustomEntry("pi-continue/link", linkData). Nothing is on disk yet.
   - step: session_start in the new instance rebuilds state from the link entry.
@@ -422,16 +422,16 @@ recovery:
       entries = parseSessionEntries(await readFile(candidate.path, "utf8"))
       if entries has custom "pi-continue/link" with data.handoffId === id: return candidate.path
     return none
-  limits_of_search: Two pi processes running /continue at once can still create two destinations.
+  limits_of_search: Two pi processes running /next at once can still create two destinations.
   interruptions:
     - when: crash before agent_settled
       source: tool result with handoffId
       destination: none
-      next: session_start reports a requested handoff. /continue <id> writes the intent and proceeds.
+      next: session_start reports a requested handoff. /next <id> writes the intent and proceeds.
     - when: crash after intent, before newSession
       source: intent
       destination: none
-      next: /continue <id> creates the destination.
+      next: /next <id> creates the destination.
     - when: another extension cancels the switch
       source: intent
       destination: none
@@ -443,16 +443,16 @@ recovery:
     - when: crash after setup, before the first message is written
       source: intent
       destination: none (link was only in memory)
-      next: /continue <id> creates the destination.
+      next: /next <id> creates the destination.
     - when: crash after the first message, before a reply
       source: intent
       destination: header, link, user message
-      next: /continue <id> finds it and switches. It never resends the continuation.
+      next: /next <id> finds it and switches. It never resends the continuation.
     - when: normal completion
       source: intent
       destination: link, message, replies
-      next: /continue <id> finds it and switches.
-  cancellation_and_queued_input: Refuse while aborted or while messages are queued. The notice tells the user to run /continue <id> when ready.
+      next: /next <id> finds it and switches.
+  cancellation_and_queued_input: Refuse while aborted or while messages are queued. The notice tells the user to run /next <id> when ready.
   uncertain_effects: Walk getBranch() from the leaf. A tool call with no matching result, or whose result came from an abort, goes into uncertainEffects. The extension cannot know whether such a tool changed anything.
   compaction_policy: Compaction does not change the retrieval-only policy. Destination compaction summarizes only destination entries, and the extension never copies source history. The context guard keeps the continuation text verbatim after compaction.
 
@@ -467,9 +467,9 @@ steps:
       - The type check command exits 0.
       - D8 passes against hand-made link entries in copied session files under /tmp/pi-continue-demo.
   - id: S2
-    title: /continue with newSession, setup and withSession
+    title: /next with newSession, setup and withSession
     actions:
-      - Register /continue. Read the intent, build the link, call ctx.newSession, send the continuation from withSession.
+      - Register /next. Read the intent, build the link, call ctx.newSession, send the continuation from withSession.
       - Rebuild state on session_start.
     done_when: [D1 passes, D2 passes]
   - id: S3
@@ -507,7 +507,7 @@ demonstrations:
       -e /tmp/pi-continue-demo/payload.ts --session-dir /tmp/pi-continue-demo/sessions/<run>
     # payload.ts is a copy of P/examples/extensions/provider-payload.ts that logs to $PI_CONTINUE_PAYLOAD_LOG.
     # -e $PROV is needed because -ne disables the package that provides the configured model.
-    # The command is /continue:2 because the provider package also registers continue (facts.environment).
+    # The steps ran with the command named continue, typed as /continue:2. It is /next since D-6 (out/next-rename/).
     # RPC mode drives queued follow-ups (D5), aborts (D6) and compaction (D7). -t adds bash for D6 and read for D7.
   results:
     final_commit: 3a2b544
@@ -534,11 +534,11 @@ demonstrations:
       evidence: rg in payloads.log for a phrase that only the source transcript contains
       expect: no match. The continuation text is present.
     - id: D3
-      do: Add a temporary 30 second wait inside setup, run kill -9 on pi during it, remove the wait, rerun /continue <id>.
+      do: Add a temporary 30 second wait inside setup, run kill -9 on pi during it, remove the wait, rerun /next <id>.
       evidence: ls of the session dir before and after
       expect: no destination file after the kill, and exactly one after the rerun.
     - id: D4
-      do: Hand off, then run /continue <id> again.
+      do: Hand off, then run /next <id> again.
       evidence: ls and jq
       expect: no second destination. Pi switches to the first.
     - id: D5
@@ -587,7 +587,7 @@ decisions_needed:
       applied: Yes, with cliproxyapi/claude-opus-5-5 at thinking level high, loaded through an explicit -e of its provider package.
     - id: D-1
       default: A
-      question: When /continue finds a destination whose last message is the unanswered continuation, what happens?
+      question: When /next finds a destination whose last message is the unanswered continuation, what happens?
       options:
         A: Switch and notify. Start nothing. (recommended. No assumption needed)
         B: 'Switch and start a run with ctx.sendMessage({ customType: "pi-continue/resume" }, { triggerTurn: true }). (untested)'
@@ -596,8 +596,8 @@ decisions_needed:
       default: A
       question: Who may start a handoff?
       options:
-        A: The model through continue_session, and the user through /continue. (recommended)
-        B: Only the user through /continue.
+        A: The model through continue_session, and the user through /next. (recommended)
+        B: Only the user through /next.
       applied: A
     - id: D-3
       question: Are the retrieval limits right? excerpt 600 chars, result 12000 chars, 20 hits, chain depth 32.
@@ -615,12 +615,9 @@ decisions_needed:
       default: Keep the transient command until the owner answers.
       applied: Kept the transient npx command.
     - id: D-6
-      question: The cliproxyapi provider also registers /continue, so users must type /continue:2. Rename this command, or keep the contract name?
-      default: Keep "continue". The extension finds its assigned name with pi.getCommands() for its own dispatch and notices, so the model path works either way.
-      applied: default
-      options:
-        A: Keep continue and accept /continue:2 while that provider is installed.
-        B: Rename to a name no installed package uses, such as handoff-continue.
+      question: The cliproxyapi provider also registers continue, so users had to type /continue:1 or /continue:2. Rename this command?
+      owner_answer: "/next just this"
+      applied: Renamed to next. RPC get_commands with the owner's normal packages lists next for this extension and continue for the provider. out/next-rename/ shows a model hand-off dispatched through /next, then /next <id> switched to the existing destination with no second file.
 
 report_back:
   - Commits made, one line each with hash and message.
