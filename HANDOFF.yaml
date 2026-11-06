@@ -481,34 +481,38 @@ execution_constraints:
   - Commit in small units, one per step, each after its checks pass.
   - Never claim an atomic handoff, complete recall or exactly-once tool effects.
 
-blockers:
-  - Demonstrations call a real model, which costs money and needs credentials. The owner has not yet approved running them. See D-0.
+blockers: []
 
 decisions_needed:
-  - id: D-0
-    question: May the agent run demonstrations D1 to D8 against a real model, with sessions under /tmp/pi-continue-demo/sessions only?
-    default: Do not run them until the owner says yes. Steps S1 to S5 may be coded first.
-  - id: D-1
-    question: When /continue finds a destination whose last message is the unanswered continuation, what happens?
-    options:
-      A: Switch and notify. Start nothing. (recommended. No assumption needed)
-      B: 'Switch and start a run with ctx.sendMessage({ customType: "pi-continue/resume" }, { triggerTurn: true }). (untested)'
-  - id: D-2
-    question: Who may start a handoff?
-    options:
-      A: The model through continue_session, and the user through /continue. (recommended)
-      B: Only the user through /continue.
-  - id: D-3
-    question: Are the retrieval limits right? excerpt 600 chars, result 12000 chars, 20 hits, chain depth 32.
-    default: Keep them until D8, then adjust.
-  - id: D-4
-    question: Should the context guard re-inject the continuation after compaction, or should a session_before_compact handler supply a summary that contains it?
-    options:
-      A: context guard, which changes only the request, not the JSONL. (recommended)
-      B: custom compaction summary
-  - id: D-5
-    question: Add @typescript/native-preview as a devDependency with a typecheck script, or keep the transient npx command?
-    default: Keep the transient command until the owner answers.
+  description: Each item has a default. Apply the default and report it. The owner may override any of them later.
+  items:
+    - id: D-0
+      question: May the agent run demonstrations D1 to D8 against a real model?
+      default: Yes. They write only under /tmp/pi-continue-demo, which is reversible. Use whatever model pi is already configured with.
+    - id: D-1
+      default: A
+      question: When /continue finds a destination whose last message is the unanswered continuation, what happens?
+      options:
+        A: Switch and notify. Start nothing. (recommended. No assumption needed)
+        B: 'Switch and start a run with ctx.sendMessage({ customType: "pi-continue/resume" }, { triggerTurn: true }). (untested)'
+    - id: D-2
+      default: A
+      question: Who may start a handoff?
+      options:
+        A: The model through continue_session, and the user through /continue. (recommended)
+        B: Only the user through /continue.
+    - id: D-3
+      question: Are the retrieval limits right? excerpt 600 chars, result 12000 chars, 20 hits, chain depth 32.
+      default: Keep them until D8, then adjust.
+    - id: D-4
+      default: A
+      question: Should the context guard re-inject the continuation after compaction, or should a session_before_compact handler supply a summary that contains it?
+      options:
+        A: context guard, which changes only the request, not the JSONL. (recommended)
+        B: custom compaction summary
+    - id: D-5
+      question: Add @typescript/native-preview as a devDependency with a typecheck script, or keep the transient npx command?
+      default: Keep the transient command until the owner answers.
 
 report_back:
   - Commits made, one line each with hash and message.
@@ -516,5 +520,5 @@ report_back:
   - For each demonstration D1 to D8, pass, fail or not run, with the artifact path under /tmp/pi-continue-demo/out/.
   - Each assumption above, marked confirmed, refuted or untested, with evidence.
   - Any new fact found in Pi source, with file and line.
-  - Owner answers received for D-0 to D-5, quoted.
+  - The option applied for each of D-0 to D-5, and any owner override, quoted.
   - Anything left unfinished and why.
