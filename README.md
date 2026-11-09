@@ -27,6 +27,10 @@ pi-continue
 
 You can start a handoff in two ways. The model can call `continue_session` with a task and a list of constraints, or you can type `/next` yourself after the model has made such a request. The command is called `/next` and not `/continue`, because another Pi extension, the cliproxyapi provider, already registers `continue`, and Pi renames both commands when two extensions use the same name.
 
+## The Complete skill
+
+The package also ships a skill called Complete. Running `/skill:complete <goal>` carries one task from research to a merged pull request with a single agent and a single model. Each phase writes a document under `.agents/artifacts/` and hands off with `continue_session`, so the next phase starts clean and reads only the documents. The skill holds the workflow and the merge rules in `skills/complete/SKILL.md`, and the extension itself stays as described above.
+
 ## How a handoff runs
 
 ```mermaid
@@ -168,6 +172,9 @@ src/
 ├── handoff.ts    continuation text, intents, interrupted calls, finding an existing session
 ├── history.ts    reading session files, following links, search
 └── schema.ts     pi-schema definitions for the entries and the tool parameters
+
+skills/
+└── complete/     the Complete skill and one reference per phase
 ```
 
 ## Development

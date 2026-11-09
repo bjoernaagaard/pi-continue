@@ -17,6 +17,7 @@
     "url": "git+https://github.com/bjoernaagaard/pi-continue.git"
   },
   "files": [
+    "skills",
     "src"
   ],
   "type": "module",
@@ -44,6 +45,9 @@
   "pi": {
     "extensions": [
       "./src/extension.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   }
 }
